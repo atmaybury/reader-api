@@ -1,24 +1,181 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/net/html"
 )
+
+type UserInput struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type User struct {
+	Id       string `json:"id"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
 
 type Subscription struct {
 	title string
 	href  string
 }
 
+// Middleware to print the Authorization header
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get the Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Invalid auth header", http.StatusForbidden)
+			return
+		}
+
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+		_, err := validateJWT(tokenString)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error validating JWT: %v", err), http.StatusInternalServerError)
+		}
+
+		// Pass the request to the next handler
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Sends 200
-func handleRoot(w http.ResponseWriter, r *http.Request) {}
+func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {}
+
+func (h *Handler) handleRegisterUser(w http.ResponseWriter, r *http.Request) {
+	// Check request method
+	if r.Method != http.MethodPost {
+		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse the JSON request body
+	var userInput UserInput
+	if err := json.NewDecoder(r.Body).Decode(&userInput); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if userInput.Username == "" || userInput.Email == "" || userInput.Password == "" {
+		http.Error(w, "Missing required fields (username, email, password)", http.StatusBadRequest)
+		return
+	}
+
+	// Check if a user with the same email already exists
+	var exists bool
+	if err := h.conn.QueryRow(
+		context.Background(),
+		"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)",
+		userInput.Email,
+	).Scan(&exists); err != nil {
+		http.Error(w, "Error checking for existing user", http.StatusInternalServerError)
+		return
+	}
+	if exists {
+		http.Error(w, "A user with this email already exists", http.StatusConflict)
+		return
+	}
+
+	// Create password hash
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(userInput.Password), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
+		return
+	}
+
+	// Add user row to db
+	var user User
+	query := `
+        INSERT INTO users (username, email, password)
+        VALUES (@username, @email, @password)
+        RETURNING id, username, email
+    `
+	args := pgx.NamedArgs{
+		"username": userInput.Username,
+		"email":    userInput.Email,
+		"password": hashedPassword,
+	}
+	if err = h.conn.QueryRow(context.Background(), query, args).Scan(&user.Id, &user.Username, &user.Email); err != nil {
+		http.Error(w, fmt.Sprintf("Error adding user to database: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// create JWT
+	token, err := generateJWT(user)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error generating token: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// send back token
+	fmt.Fprint(w, token)
+}
+
+func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
+	// Check request method
+	if r.Method != http.MethodPost {
+		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse the JSON request body
+	var userInput UserInput
+	if err := json.NewDecoder(r.Body).Decode(&userInput); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if userInput.Username == "" || userInput.Email == "" || userInput.Password == "" {
+		http.Error(w, "Missing required fields (username, email, password)", http.StatusBadRequest)
+		return
+	}
+
+	// Check if a user with the same email already exists
+	var user User
+	if err := h.conn.QueryRow(
+		context.Background(),
+		"SELECT id, username, email, password FROM users WHERE email = $1",
+		userInput.Email,
+	).Scan(&user.Id, &user.Username, &user.Email, &user.Password); err != nil {
+		http.Error(w, "Error checking for existing user", http.StatusInternalServerError)
+		return
+	}
+
+	// Compare user password input to hashed password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(userInput.Password)); err != nil {
+		http.Error(w, "Invalid username or password", http.StatusUnauthorized)
+		return
+	}
+
+	// create JWT
+	token, err := generateJWT(user)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error generating token: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// send back token
+	fmt.Fprint(w, token)
+}
 
 // Given a URL, find any rss links and save them
-func handleAddSubscription(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) {
 	// Check request method
 	if r.Method != http.MethodGet {
 		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
@@ -72,46 +229,20 @@ func handleAddSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO save links
-	for _, url := range urls {
-		fmt.Println("----------")
-		fmt.Println(url.title)
-		fmt.Println(url.href)
-		fmt.Println("----------")
-	}
-}
-
-// Function to recursively traverse the HTML node tree
-func findFeedLinks(n *html.Node, urls *[]Subscription) {
-	fmt.Printf("%v %v\n", n.Type, n.Data)
-	if n.Type == html.ElementNode && n.Data == "link" {
-		var rel, attrtype, title, href string
-		for _, attr := range n.Attr {
-			switch attr.Key {
-			case "rel":
-				rel = attr.Val
-			case "type":
-				attrtype = attr.Val
-			case "title":
-				title = attr.Val
-			case "href":
-				href = attr.Val
-			}
+	query := `
+        INSERT INTO subscriptions (user_id, title, url)
+        VALUES (@user_id, @title, @url)
+    `
+	for _, feedURL := range urls {
+		args := pgx.NamedArgs{
+			"user_id": 7,
+			"title":   feedURL.title,
+			"url":     feedURL.href,
 		}
-
-		// Check if the link is an RSS or Atom feed
-		if strings.ToLower(rel) == "alternate" {
-			if strings.Contains(
-				strings.ToLower(attrtype), "rss") || strings.Contains(strings.ToLower(attrtype), "atom") {
-				*urls = append(*urls, Subscription{
-					title: title,
-					href:  href,
-				})
-			}
+		if _, err := h.conn.Exec(context.Background(), query, args); err != nil {
+			http.Error(w, fmt.Sprintf("Error adding subscription to database: %v", err), http.StatusInternalServerError)
+			return
 		}
 	}
 
-	// Recursively traverse child nodes
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		findFeedLinks(c, urls)
-	}
 }

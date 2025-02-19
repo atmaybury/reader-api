@@ -1,21 +1,50 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+
+	"github.com/jackc/pgx/v5"
 )
+
+// TODO
+//  link finder - exit if </head> reached
+//  Pass user token to http handlers
 
 const (
 	port = 8080
 )
 
+type Handler struct {
+	conn *pgx.Conn
+}
+
 func main() {
+	// Get db connection
+	conn, err := getDBConnection()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
+		return
+	}
+	defer conn.Close(context.Background())
+
+	// Init handler
+	handler := &Handler{
+		conn: conn,
+	}
+
 	fmt.Printf("Starting server at port %d\n", port)
 
-	http.HandleFunc("/", handleRoot)
+	// No auth
+	http.HandleFunc("/", handler.handleRoot)
+	http.HandleFunc("/register", handler.handleRegisterUser)
+	http.HandleFunc("/login", handler.handleLogin)
 
-	http.HandleFunc("/add", handleAddSubscription)
+	// Auth
+	http.HandleFunc("/add", authMiddleware(handler.handleAddSubscription))
 
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatal(err)
