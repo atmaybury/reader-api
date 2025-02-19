@@ -64,8 +64,6 @@ func findFeedLinks(n *html.Node, urls *[]Subscription) {
 	}
 }
 
-var secret = []byte("temporarySecret")
-
 func generateJWT(user User) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256,
 		jwt.MapClaims{
@@ -89,6 +87,11 @@ func generateJWT(user User) (string, error) {
 }
 
 func validateJWT(tokenString string) (*jwt.MapClaims, error) {
+	secret, exists := os.LookupEnv("JWT_SECRET")
+	if !exists {
+		return nil, fmt.Errorf("Couldn't get JWT secret path from environment")
+	}
+
 	// Parse the token with the secret key
 	token, err := jwt.Parse(
 		tokenString,
