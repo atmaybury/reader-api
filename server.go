@@ -11,9 +11,8 @@ import (
 )
 
 // TODO
-//  auth middleware
-//  auth calls to add subscription
 //  link finder - exit if </head> reached
+//  Pass user token to http handlers
 
 const (
 	port = 8080
@@ -39,8 +38,12 @@ func main() {
 
 	fmt.Printf("Starting server at port %d\n", port)
 
+	// No auth
 	http.HandleFunc("/", handler.handleRoot)
 	http.HandleFunc("/register", handler.handleRegisterUser)
+	http.HandleFunc("/login", handler.handleLogin)
+
+	// Auth
 	http.HandleFunc("/add", authMiddleware(handler.handleAddSubscription))
 
 	if err := http.ListenAndServe(":8080", nil); err != nil {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -12,7 +13,10 @@ import (
 )
 
 func getDBConnection() (*pgx.Conn, error) {
-	dbURL := "postgresql://andrew:WMI8fsHvYL0sR4hCOTGQ06zSxmoupIW9@dpg-cuo4sqrqf0us738rr4hg-a.singapore-postgres.render.com:5432/reader_db_z0oe"
+	dbURL, exists := os.LookupEnv("DB_PATH")
+	if !exists {
+		return nil, fmt.Errorf("Couldn't get DB path from environment")
+	}
 
 	// conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
 	conn, err := pgx.Connect(context.Background(), dbURL)
@@ -60,9 +64,9 @@ func findFeedLinks(n *html.Node, urls *[]Subscription) {
 	}
 }
 
-func generateJWT(user User) (string, error) {
-	secret := "temporarySecret"
+var secret = []byte("temporarySecret")
 
+func generateJWT(user User) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256,
 		jwt.MapClaims{
 			"id":       user.Id,
@@ -71,10 +75,48 @@ func generateJWT(user User) (string, error) {
 			"exp":      time.Now().Add(time.Hour * 24).Unix(),
 		})
 
+	secret, exists := os.LookupEnv("JWT_SECRET")
+	if !exists {
+		return "", fmt.Errorf("Couldn't get JWT secret path from environment")
+	}
+
 	tokenString, err := token.SignedString(secret)
 	if err != nil {
 		return "", err
 	}
 
 	return tokenString, nil
+}
+
+func validateJWT(tokenString string) (*jwt.MapClaims, error) {
+	// Parse the token with the secret key
+	token, err := jwt.Parse(
+		tokenString,
+		func(token *jwt.Token) (interface{}, error) {
+			// Ensure the signing method is what we expect
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return secret, nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if token is valid
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		// Check expiration
+		if exp, ok := claims["exp"].(float64); ok {
+			if time.Now().Unix() > int64(exp) {
+				return nil, fmt.Errorf("token has expired")
+			}
+		} else {
+			return nil, fmt.Errorf("invalid expiration claim")
+		}
+
+		return &claims, nil
+	}
+
+	return nil, fmt.Errorf("invalid token")
 }
