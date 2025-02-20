@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5"
+	"github.com/joho/godotenv"
 	"log"
 	"net/http"
 	"os"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // TODO
@@ -23,6 +23,12 @@ type Handler struct {
 }
 
 func main() {
+	// Load env vars
+	err := godotenv.Load() // 👈 load .env file
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Get db connection
 	conn, err := getDBConnection()
 	if err != nil {
@@ -45,6 +51,7 @@ func main() {
 
 	// Auth
 	http.HandleFunc("/add", authMiddleware(handler.handleAddSubscription))
+	http.HandleFunc("/user-subscriptions", authMiddleware(handler.handleGetUserSubscriptions))
 
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatal(err)

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/golang-jwt/jwt"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/net/html"
@@ -20,16 +21,36 @@ type UserInput struct {
 }
 
 type User struct {
-	Id       string `json:"id"`
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Id       string
+	Username string
+	Email    string
+	Password string
 }
 
-type Subscription struct {
+type SubscriptionTag struct {
 	title string
 	href  string
 }
+
+type Subscription struct {
+	Id    int    `json:"id"`
+	Title string `json:"title"`
+	Url   string `json:"url"`
+}
+
+type Token struct {
+	Id       string `json:"id"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Exp      int64  `json:"exp"`
+	jwt.MapClaims
+}
+
+type TokenKey string
+
+const (
+	userTokenKey TokenKey = "usertoken"
+)
 
 // Middleware to print the Authorization header
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -43,13 +64,17 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 
-		_, err := validateJWT(tokenString)
+		token, err := validateJWT(tokenString)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error validating JWT: %v", err), http.StatusInternalServerError)
+			return
 		}
 
+		// Context to hold token
+		ctx := context.WithValue(r.Context(), userTokenKey, token)
+
 		// Pass the request to the next handler
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -182,6 +207,13 @@ func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Get user token
+	userToken, ok := r.Context().Value(userTokenKey).(*Token)
+	if !ok {
+		http.Error(w, "No claims found in context", http.StatusForbidden)
+		return
+	}
+
 	// Get URL for querying
 	inputURL := r.URL.Query().Get("url")
 	if inputURL == "" {
@@ -218,7 +250,7 @@ func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// slice of rss urls
-	var urls []Subscription
+	var urls []SubscriptionTag
 
 	// Traverse the HTML document
 	findFeedLinks(doc, &urls)
@@ -235,7 +267,7 @@ func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) 
     `
 	for _, feedURL := range urls {
 		args := pgx.NamedArgs{
-			"user_id": 7,
+			"user_id": userToken.Id,
 			"title":   feedURL.title,
 			"url":     feedURL.href,
 		}
@@ -245,4 +277,46 @@ func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+}
+
+func (h *Handler) handleGetUserSubscriptions(w http.ResponseWriter, r *http.Request) {
+	// Check request method
+	if r.Method != http.MethodGet {
+		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get user token
+	userToken, ok := r.Context().Value(userTokenKey).(*Token)
+	if !ok {
+		http.Error(w, "No claims found in context", http.StatusForbidden)
+		return
+	}
+
+	var subscriptions []Subscription
+	rows, err := h.conn.Query(
+		context.Background(),
+		"SELECT id, title, url FROM subscriptions WHERE user_id = $1",
+		userToken.Id,
+	)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error getting subscriptions for user %s", userToken.Id), http.StatusForbidden)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var sub Subscription
+		if err := rows.Scan(&sub.Id, &sub.Title, &sub.Url); err != nil {
+			http.Error(w, "Error scanning subscription row", http.StatusInternalServerError)
+			return
+		}
+		subscriptions = append(subscriptions, sub)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, "Error iterating over subscriptions", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(subscriptions)
 }
