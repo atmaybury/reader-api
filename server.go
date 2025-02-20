@@ -24,10 +24,10 @@ type Handler struct {
 
 func main() {
 	// Load env vars
-	err := godotenv.Load() // 👈 load .env file
-	if err != nil {
-		log.Fatal(err)
-	}
+	// err := godotenv.Load()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
 	// Get db connection
 	conn, err := getDBConnection()
