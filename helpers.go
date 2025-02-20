@@ -13,12 +13,11 @@ import (
 )
 
 func getDBConnection() (*pgx.Conn, error) {
-	dbURL, exists := os.LookupEnv("DB_PATH")
-	if !exists {
+	dbURL := os.Getenv("DB_PATH")
+	if dbURL == "" {
 		return nil, fmt.Errorf("Couldn't get DB path from environment")
 	}
 
-	// conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
 	conn, err := pgx.Connect(context.Background(), dbURL)
 	if err != nil {
 		return nil, err
@@ -30,7 +29,7 @@ func getDBConnection() (*pgx.Conn, error) {
 }
 
 // Function to recursively traverse the HTML node tree
-func findFeedLinks(n *html.Node, urls *[]Subscription) {
+func findFeedLinks(n *html.Node, urls *[]SubscriptionTag) {
 	if n.Type == html.ElementNode && n.Data == "link" {
 		var rel, attrtype, title, href string
 		for _, attr := range n.Attr {
@@ -50,7 +49,7 @@ func findFeedLinks(n *html.Node, urls *[]Subscription) {
 		if strings.ToLower(rel) == "alternate" {
 			if strings.Contains(
 				strings.ToLower(attrtype), "rss") || strings.Contains(strings.ToLower(attrtype), "atom") {
-				*urls = append(*urls, Subscription{
+				*urls = append(*urls, SubscriptionTag{
 					title: title,
 					href:  href,
 				})
@@ -73,8 +72,8 @@ func generateJWT(user User) (string, error) {
 			"exp":      time.Now().Add(time.Hour * 24).Unix(),
 		})
 
-	secret, exists := os.LookupEnv("JWT_SECRET")
-	if !exists {
+	secret := []byte(os.Getenv("JWT_SECRET"))
+	if secret == nil {
 		return "", fmt.Errorf("Couldn't get JWT secret path from environment")
 	}
 
@@ -86,40 +85,33 @@ func generateJWT(user User) (string, error) {
 	return tokenString, nil
 }
 
-func validateJWT(tokenString string) (*jwt.MapClaims, error) {
-	secret, exists := os.LookupEnv("JWT_SECRET")
-	if !exists {
-		return nil, fmt.Errorf("Couldn't get JWT secret path from environment")
-	}
-
-	// Parse the token with the secret key
-	token, err := jwt.Parse(
-		tokenString,
-		func(token *jwt.Token) (interface{}, error) {
-			// Ensure the signing method is what we expect
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return secret, nil
-		},
-	)
+func validateJWT(tokenString string) (*Token, error) {
+	// Parse the token
+	token, err := jwt.ParseWithClaims(tokenString, &Token{}, func(token *jwt.Token) (interface{}, error) {
+		secret := []byte(os.Getenv("JWT_SECRET"))
+		if secret == nil {
+			return nil, fmt.Errorf("Couldn't get JWT secret path from environment")
+		}
+		// Ensure the signing method is what we expect
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+		}
+		return secret, nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	// Check if token is valid
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		// Check expiration
-		if exp, ok := claims["exp"].(float64); ok {
-			if time.Now().Unix() > int64(exp) {
-				return nil, fmt.Errorf("token has expired")
-			}
-		} else {
-			return nil, fmt.Errorf("invalid expiration claim")
-		}
-
-		return &claims, nil
+	// Get claims from token
+	claims, ok := token.Claims.(*Token)
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("invalid token")
 	}
 
-	return nil, fmt.Errorf("invalid token")
+	// Get and check expiration
+	if time.Now().Unix() > int64(claims.Exp) {
+		return nil, fmt.Errorf("Token has expired")
+	}
+
+	return claims, nil
 }
