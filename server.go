@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/jackc/pgx/v5"
-	"github.com/joho/godotenv"
+	// "github.com/joho/godotenv"
 	"log"
 	"net/http"
 	"os"
