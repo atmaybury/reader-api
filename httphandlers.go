@@ -55,6 +55,11 @@ const (
 // Middleware to print the Authorization header
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		// w.Header().Set("Access-Control-Allow-Origin", "*") // Allow all origins
+		// w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+		// w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
 		// Get the Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
@@ -82,6 +87,11 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {}
 
 func (h *Handler) handleRegisterUser(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*") // Allow all origins
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
 	// Check request method
 	if r.Method != http.MethodPost {
 		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
@@ -141,17 +151,22 @@ func (h *Handler) handleRegisterUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// create JWT
-	token, err := generateJWT(user)
+	tokenString, err := generateJWT(user)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error generating token: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	// send back token
-	fmt.Fprint(w, token)
+	fmt.Fprint(w, tokenString)
 }
 
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*") // Allow all origins
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
 	// Check request method
 	if r.Method != http.MethodPost {
 		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
@@ -189,14 +204,14 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// create JWT
-	token, err := generateJWT(user)
+	tokenString, err := generateJWT(user)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error generating token: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	// send back token
-	fmt.Fprint(w, token)
+	fmt.Fprint(w, tokenString)
 }
 
 // Given a URL, find any rss links and save them

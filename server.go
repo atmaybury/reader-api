@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/jackc/pgx/v5"
-	// "github.com/joho/godotenv"
 	"log"
 	"net/http"
 	"os"
@@ -23,12 +22,6 @@ type Handler struct {
 }
 
 func main() {
-	// Load env vars
-	// err := godotenv.Load()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
 	// Get db connection
 	conn, err := getDBConnection()
 	if err != nil {
