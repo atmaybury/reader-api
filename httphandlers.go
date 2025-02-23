@@ -186,7 +186,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if a user with the same email already exists
+	// Get user by email
 	var user User
 	if err := h.conn.QueryRow(
 		context.Background(),
