@@ -8,24 +8,24 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/net/html"
 )
 
-func getDBConnection() (*pgx.Conn, error) {
+func getDBPool() (*pgxpool.Pool, error) {
 	dbURL := os.Getenv("DB_PATH")
 	if dbURL == "" {
 		return nil, fmt.Errorf("Couldn't get DB path from environment")
 	}
 
-	conn, err := pgx.Connect(context.Background(), dbURL)
+	pool, err := pgxpool.New(context.Background(), dbURL)
 	if err != nil {
 		return nil, err
 	}
 
 	fmt.Println("Connected to database")
 
-	return conn, nil
+	return pool, nil
 }
 
 // Function to recursively traverse the HTML node tree
@@ -69,7 +69,7 @@ func generateJWT(user User) (string, error) {
 			"id":       user.Id,
 			"username": user.Username,
 			"email":    user.Email,
-			"exp":      time.Now().Add(time.Hour * 24).Unix(),
+			"exp":      time.Now().Add(time.Hour * 24 * 7).Unix(),
 		})
 
 	secret := []byte(os.Getenv("JWT_SECRET"))

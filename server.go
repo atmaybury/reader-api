@@ -1,12 +1,12 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // TODO
@@ -18,17 +18,17 @@ const (
 )
 
 type Handler struct {
-	conn *pgx.Conn
+	conn *pgxpool.Pool
 }
 
 func main() {
 	// Get db connection
-	conn, err := getDBConnection()
+	conn, err := getDBPool()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
 		return
 	}
-	defer conn.Close(context.Background())
+	defer conn.Close()
 
 	// Init handler
 	handler := &Handler{
