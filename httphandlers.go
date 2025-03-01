@@ -185,11 +185,15 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fmt.Printf("Logging in %s\n", userInput.Email)
+
 	// Validate required fields
 	if userInput.Username == "" || userInput.Email == "" || userInput.Password == "" {
 		http.Error(w, "Missing required fields (username, email, password)", http.StatusBadRequest)
 		return
 	}
+
+	fmt.Println(userInput)
 
 	// Get user by email
 	var user User
@@ -198,7 +202,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"SELECT id, username, email, password FROM users WHERE email = $1",
 		userInput.Email,
 	).Scan(&user.Id, &user.Username, &user.Email, &user.Password); err != nil {
-		http.Error(w, "Error checking for existing user", http.StatusInternalServerError)
+		http.Error(w, "Error getting user from DB", http.StatusInternalServerError)
 		return
 	}
 
@@ -301,9 +305,9 @@ func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) handleGetUserSubscriptions(w http.ResponseWriter, r *http.Request) {
 	// Set CORS headers
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	// w.Header().Set("Access-Control-Allow-Origin", "*")
+	// w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	// w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 	// Check request method
 	if r.Method != http.MethodGet {

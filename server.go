@@ -1,24 +1,47 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // TODO
 //  link finder - exit if </head> reached
-//  Pass user token to http handlers
+// tests
 
 const (
 	port = 8080
 )
 
+// Interface to allow using pgxmock in Handler
+type PgxInterface interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 type Handler struct {
-	conn *pgxpool.Pool
+	conn PgxInterface
+}
+
+func SetupRouter(handler *Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/", handler.handleRoot)
+	mux.HandleFunc("/register", handler.handleRegisterUser)
+	mux.HandleFunc("/login", handler.handleLogin)
+
+	// Auth
+	mux.HandleFunc("/add", authMiddleware(handler.handleAddSubscription))
+	mux.HandleFunc("/user-subscriptions", authMiddleware(handler.handleGetUserSubscriptions))
+
+	return mux
 }
 
 func main() {
@@ -35,18 +58,14 @@ func main() {
 		conn: conn,
 	}
 
+	mux := SetupRouter(handler)
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
+
 	fmt.Printf("Starting server at port %d\n", port)
-
-	// No auth
-	http.HandleFunc("/", handler.handleRoot)
-	http.HandleFunc("/register", handler.handleRegisterUser)
-	http.HandleFunc("/login", handler.handleLogin)
-
-	// Auth
-	http.HandleFunc("/add", authMiddleware(handler.handleAddSubscription))
-	http.HandleFunc("/user-subscriptions", authMiddleware(handler.handleGetUserSubscriptions))
-
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		log.Fatal(err)
+	if err := server.ListenAndServe(); err != nil {
+		log.Printf("Server error: %v", err)
 	}
 }
