@@ -167,3 +167,12 @@ func TestHandleGetUserSubscriptions(t *testing.T) {
 	missingAuthHeader(t, mux, path)
 	invalidAuthHeader(t, mux, path)
 }
+
+func TestHandleAddSubscription(t *testing.T) {
+	path := "/add-subscription"
+	handler := setupTestHandler(t)
+	mux := SetupRouter(handler)
+
+	missingAuthHeader(t, mux, path)
+	invalidAuthHeader(t, mux, path)
+}
