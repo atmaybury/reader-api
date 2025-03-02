@@ -13,7 +13,7 @@ import (
 
 // setupTestHandler creates a mock pool and handler for testing
 func setupTestHandler(t *testing.T) *Handler {
-	t.Helper() // Marks this as a helper function so errors show the correct line number
+	t.Helper()
 
 	mockPool, err := pgxmock.NewPool()
 	if err != nil {
@@ -46,8 +46,9 @@ func invalidMethod(t *testing.T, mux *http.ServeMux, method string, path string)
 		t.Fatal(err)
 	}
 
-	if resp.StatusCode != http.StatusMethodNotAllowed {
-		t.Errorf("Expected status %d; got %v: %v", http.StatusMethodNotAllowed, resp.Status, string(body))
+	expectedStatus := http.StatusMethodNotAllowed
+	if resp.StatusCode != expectedStatus {
+		t.Errorf("Expected status %d; got %v: %v", expectedStatus, resp.Status, string(body))
 	}
 }
 
@@ -83,10 +84,61 @@ func invalidUserInput(t *testing.T, mux *http.ServeMux, path string) {
 		t.Fatal(err)
 	}
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("Expected status %d; got %v: %v", http.StatusMethodNotAllowed, resp.Status, string(body))
+	expectedStatus := http.StatusBadRequest
+	if resp.StatusCode != expectedStatus {
+		t.Errorf("Expected status %d; got %v: %v", expectedStatus, resp.Status, string(body))
+	}
+}
+
+func missingAuthHeader(t *testing.T, mux *http.ServeMux, path string) {
+	t.Helper()
+
+	// Make request and response
+	req := httptest.NewRequest(http.MethodPost, path, nil)
+	w := httptest.NewRecorder()
+
+	// Call handler
+	mux.ServeHTTP(w, req)
+
+	// Check response
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
 	}
 
+	expectedStatus := http.StatusUnauthorized
+	if resp.StatusCode != expectedStatus {
+		t.Errorf("Expected status %d; got %v: %v", expectedStatus, resp.Status, string(body))
+	}
+}
+
+func invalidAuthHeader(t *testing.T, mux *http.ServeMux, path string) {
+	t.Helper()
+
+	// Make request and response
+	req := httptest.NewRequest(http.MethodPost, path, nil)
+	req.Header.Add("Authorization", "Bearer test")
+	w := httptest.NewRecorder()
+
+	// Call handler
+	mux.ServeHTTP(w, req)
+
+	// Check response
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expectedStatus := http.StatusUnauthorized
+	if resp.StatusCode != expectedStatus {
+		t.Errorf("Expected status %d; got %v: %v", expectedStatus, resp.Status, string(body))
+	}
 }
 
 func TestHandleLogin(t *testing.T) {
@@ -112,5 +164,6 @@ func TestHandleGetUserSubscriptions(t *testing.T) {
 	handler := setupTestHandler(t)
 	mux := SetupRouter(handler)
 
-	invalidMethod(t, mux, http.MethodPost, path)
+	missingAuthHeader(t, mux, path)
+	invalidAuthHeader(t, mux, path)
 }

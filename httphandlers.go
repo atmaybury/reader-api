@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/golang-jwt/jwt"
 	"github.com/jackc/pgx/v5"
@@ -28,8 +27,8 @@ type User struct {
 }
 
 type SubscriptionTag struct {
-	title string
-	href  string
+	Title string
+	Href  string
 }
 
 type Subscription struct {
@@ -51,42 +50,6 @@ type TokenKey string
 const (
 	userTokenKey TokenKey = "usertoken"
 )
-
-// Middleware to print the Authorization header
-func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Set CORS headers
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-		// Handle preflight request
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		// Get the Authorization header
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "Invalid auth header", http.StatusForbidden)
-			return
-		}
-
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-
-		token, err := validateJWT(tokenString)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Error validating JWT: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		// Context to hold token
-		ctx := context.WithValue(r.Context(), userTokenKey, token)
-
-		// Pass the request to the next handler
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
 
 // Sends 200
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {}
@@ -223,6 +186,48 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, tokenString)
 }
 
+func (h *Handler) handleGetUserSubscriptions(w http.ResponseWriter, r *http.Request) {
+	// Check request method
+	if r.Method != http.MethodGet {
+		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get user token
+	userToken, ok := r.Context().Value(userTokenKey).(*Token)
+	if !ok {
+		http.Error(w, "No claims found in context", http.StatusForbidden)
+		return
+	}
+
+	var subscriptions []Subscription
+	rows, err := h.conn.Query(
+		context.Background(),
+		"SELECT id, title, url FROM subscriptions WHERE user_id = $1",
+		userToken.Id,
+	)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error getting subscriptions for user %s", userToken.Id), http.StatusForbidden)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var sub Subscription
+		if err := rows.Scan(&sub.Id, &sub.Title, &sub.Url); err != nil {
+			http.Error(w, "Error scanning subscription row", http.StatusInternalServerError)
+			return
+		}
+		subscriptions = append(subscriptions, sub)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, "Error iterating over subscriptions", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(subscriptions)
+}
+
 // Given a URL, find any rss links and save them
 func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) {
 	// Check request method
@@ -274,26 +279,26 @@ func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// slice of rss urls
-	var urls []SubscriptionTag
+	var feeds []SubscriptionTag
 
 	// Traverse the HTML document
-	findFeedLinks(doc, &urls)
+	findFeedLinks(doc, &feeds)
 
-	if len(urls) == 0 {
+	if len(feeds) == 0 {
 		http.Error(w, fmt.Sprint("No feed URLs found"), http.StatusInternalServerError)
 		return
 	}
 
-	// TODO save links
+	// Save to db
 	query := `
         INSERT INTO subscriptions (user_id, title, url)
         VALUES (@user_id, @title, @url)
     `
-	for _, feedURL := range urls {
+	for _, feedURL := range feeds {
 		args := pgx.NamedArgs{
 			"user_id": userToken.Id,
-			"title":   feedURL.title,
-			"url":     feedURL.href,
+			"title":   feedURL.Title,
+			"url":     feedURL.Href,
 		}
 		if _, err := h.conn.Exec(context.Background(), query, args); err != nil {
 			http.Error(w, fmt.Sprintf("Error adding subscription to database: %v", err), http.StatusInternalServerError)
@@ -301,51 +306,5 @@ func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-}
-
-func (h *Handler) handleGetUserSubscriptions(w http.ResponseWriter, r *http.Request) {
-	// Set CORS headers
-	// w.Header().Set("Access-Control-Allow-Origin", "*")
-	// w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	// w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-	// Check request method
-	if r.Method != http.MethodGet {
-		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Get user token
-	userToken, ok := r.Context().Value(userTokenKey).(*Token)
-	if !ok {
-		http.Error(w, "No claims found in context", http.StatusForbidden)
-		return
-	}
-
-	var subscriptions []Subscription
-	rows, err := h.conn.Query(
-		context.Background(),
-		"SELECT id, title, url FROM subscriptions WHERE user_id = $1",
-		userToken.Id,
-	)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error getting subscriptions for user %s", userToken.Id), http.StatusForbidden)
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var sub Subscription
-		if err := rows.Scan(&sub.Id, &sub.Title, &sub.Url); err != nil {
-			http.Error(w, "Error scanning subscription row", http.StatusInternalServerError)
-			return
-		}
-		subscriptions = append(subscriptions, sub)
-	}
-	if err := rows.Err(); err != nil {
-		http.Error(w, "Error iterating over subscriptions", http.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(w).Encode(subscriptions)
+	json.NewEncoder(w).Encode(feeds)
 }

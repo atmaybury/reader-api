@@ -50,8 +50,8 @@ func findFeedLinks(n *html.Node, urls *[]SubscriptionTag) {
 			if strings.Contains(
 				strings.ToLower(attrtype), "rss") || strings.Contains(strings.ToLower(attrtype), "atom") {
 				*urls = append(*urls, SubscriptionTag{
-					title: title,
-					href:  href,
+					Title: title,
+					Href:  href,
 				})
 			}
 		}

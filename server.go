@@ -33,13 +33,13 @@ type Handler struct {
 func SetupRouter(handler *Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/", handler.handleRoot)
-	mux.HandleFunc("/register", handler.handleRegisterUser)
-	mux.HandleFunc("/login", handler.handleLogin)
+	mux.HandleFunc("/", corsMiddleware(handler.handleRoot))
+	mux.HandleFunc("/register", corsMiddleware(handler.handleRegisterUser))
+	mux.HandleFunc("/login", corsMiddleware(handler.handleLogin))
 
 	// Auth
-	mux.HandleFunc("/add", authMiddleware(handler.handleAddSubscription))
-	mux.HandleFunc("/user-subscriptions", authMiddleware(handler.handleGetUserSubscriptions))
+	mux.HandleFunc("/user-subscriptions", corsMiddleware(authMiddleware(handler.handleGetUserSubscriptions)))
+	mux.HandleFunc("/add-subscription", corsMiddleware(authMiddleware(handler.handleAddSubscription)))
 
 	return mux
 }
