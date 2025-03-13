@@ -156,8 +156,6 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println(userInput)
-
 	// Get user by email
 	var user User
 	if err := h.conn.QueryRow(
@@ -289,10 +287,13 @@ func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	var newSubscriptions []Subscription
+
 	// Save to db
 	query := `
         INSERT INTO subscriptions (user_id, title, url)
         VALUES (@user_id, @title, @url)
+        RETURNING id, title, url
     `
 	for _, feedURL := range feeds {
 		args := pgx.NamedArgs{
@@ -300,11 +301,17 @@ func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) 
 			"title":   feedURL.Title,
 			"url":     feedURL.Href,
 		}
-		if _, err := h.conn.Exec(context.Background(), query, args); err != nil {
-			http.Error(w, fmt.Sprintf("Error adding subscription to database: %v", err), http.StatusInternalServerError)
+		var returnedSubscription Subscription
+		if err = h.conn.QueryRow(
+			context.Background(), query, args,
+		).Scan(
+			&returnedSubscription.Id, &returnedSubscription.Title, &returnedSubscription.Url,
+		); err != nil {
+			http.Error(w, fmt.Sprintf("Error adding subscription to database: %v", err), http.StatusBadRequest)
 			return
 		}
+		newSubscriptions = append(newSubscriptions, returnedSubscription)
 	}
 
-	json.NewEncoder(w).Encode(feeds)
+	json.NewEncoder(w).Encode(newSubscriptions)
 }
