@@ -164,6 +164,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		userInput.Email,
 	).Scan(&user.Id, &user.Username, &user.Email, &user.Password); err != nil {
 		http.Error(w, "Error getting user from DB", http.StatusInternalServerError)
+		fmt.Println(err)
 		return
 	}
 

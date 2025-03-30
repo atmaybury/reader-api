@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -13,10 +14,21 @@ import (
 )
 
 func getDBPool() (*pgxpool.Pool, error) {
-	dbURL := os.Getenv("DB_PATH")
-	if dbURL == "" {
-		return nil, fmt.Errorf("Couldn't get DB path from environment")
+	host := os.Getenv("DB_HOST")
+	port := os.Getenv("DB_PORT")
+	dbName := os.Getenv("DB_NAME")
+	user := os.Getenv("DB_USER")
+	password := os.Getenv("DB_PASSWORD")
+
+	if host == "" || port == "" || dbName == "" || user == "" || password == "" {
+		return nil, fmt.Errorf("Missing required database parameter")
 	}
+
+	escapedPassword := url.QueryEscape(password)
+
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s", user, escapedPassword, host, port, dbName)
+
+	fmt.Println("dbURL: ", dbURL)
 
 	pool, err := pgxpool.New(context.Background(), dbURL)
 	if err != nil {
