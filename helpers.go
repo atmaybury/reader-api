@@ -28,8 +28,6 @@ func getDBPool() (*pgxpool.Pool, error) {
 
 	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s", user, escapedPassword, host, port, dbName)
 
-	fmt.Println("dbURL: ", dbURL)
-
 	pool, err := pgxpool.New(context.Background(), dbURL)
 	if err != nil {
 		return nil, err
@@ -84,10 +82,11 @@ func generateJWT(user User) (string, error) {
 			"exp":      time.Now().Add(time.Hour * 24 * 7).Unix(),
 		})
 
-	secret := []byte(os.Getenv("JWT_SECRET"))
-	if secret == nil {
+	secretString := os.Getenv("JWT_SECRET")
+	if secretString == "" {
 		return "", fmt.Errorf("Couldn't get JWT secret path from environment")
 	}
+	secret := []byte(secretString)
 
 	tokenString, err := token.SignedString(secret)
 	if err != nil {
@@ -100,10 +99,13 @@ func generateJWT(user User) (string, error) {
 func validateJWT(tokenString string) (*Token, error) {
 	// Parse the token
 	token, err := jwt.ParseWithClaims(tokenString, &Token{}, func(token *jwt.Token) (interface{}, error) {
-		secret := []byte(os.Getenv("JWT_SECRET"))
-		if secret == nil {
+		// Get jwt secret from env
+		secretString := os.Getenv("JWT_SECRET")
+		if secretString == "" {
 			return nil, fmt.Errorf("Couldn't get JWT secret path from environment")
 		}
+		secret := []byte(secretString)
+
 		// Ensure the signing method is what we expect
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])

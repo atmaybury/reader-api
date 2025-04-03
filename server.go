@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/joho/godotenv"
 )
 
 // TODO
@@ -45,6 +46,9 @@ func SetupRouter(handler *Handler) *http.ServeMux {
 }
 
 func main() {
+	// Load env variables
+	_ = godotenv.Load()
+
 	// Get db connection
 	conn, err := getDBPool()
 	if err != nil {
@@ -68,28 +72,4 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
-	// host := os.Getenv("DB_HOST")
-	// port := os.Getenv("DB_PORT")
-	// dbName := os.Getenv("DB_NAME")
-	// user := os.Getenv("DB_USER")
-	// password := os.Getenv("DB_PASSWORD")
-
-	// http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-	// 	data := map[string]string{
-	// 		"DB_HOST":        host,
-	// 		"DB_PORT":        port,
-	// 		"DB_NAME":        dbName,
-	// 		"DB_USER":        user,
-	// 		"DB_PASSWORD":    password,
-	// 		"requested_path": r.URL.Path,
-	// 	}
-
-	// 	// Set content type header
-	// 	w.Header().Set("Content-Type", "application/json")
-
-	// 	// Convert map to JSON and write to response
-	// 	json.NewEncoder(w).Encode(data)
-	// })
-
-	// http.ListenAndServe(":8080", nil)
 }
