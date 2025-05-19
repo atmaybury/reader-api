@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/pashagolub/pgxmock/v4"
 )
 
@@ -27,7 +28,7 @@ func setupTestHandler(t *testing.T) *Handler {
 	return handler
 }
 
-func invalidMethod(t *testing.T, mux *http.ServeMux, method string, path string) {
+func invalidMethod(t *testing.T, mux *mux.Router, method string, path string) {
 	t.Helper()
 
 	// Make request and response
@@ -57,7 +58,7 @@ type InvalidUserInput struct {
 	Email    string `json:"email"`
 }
 
-func invalidUserInput(t *testing.T, mux *http.ServeMux, path string) {
+func invalidUserInput(t *testing.T, mux *mux.Router, path string) {
 	t.Helper()
 
 	invalidUserInput := &InvalidUserInput{
@@ -90,7 +91,7 @@ func invalidUserInput(t *testing.T, mux *http.ServeMux, path string) {
 	}
 }
 
-func missingAuthHeader(t *testing.T, mux *http.ServeMux, path string) {
+func missingAuthHeader(t *testing.T, mux *mux.Router, path string) {
 	t.Helper()
 
 	// Make request and response
@@ -115,7 +116,7 @@ func missingAuthHeader(t *testing.T, mux *http.ServeMux, path string) {
 	}
 }
 
-func invalidAuthHeader(t *testing.T, mux *http.ServeMux, path string) {
+func invalidAuthHeader(t *testing.T, mux *mux.Router, path string) {
 	t.Helper()
 
 	// Make request and response

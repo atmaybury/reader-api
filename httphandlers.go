@@ -55,17 +55,6 @@ const (
 func (h *Handler) handleRoot(w http.ResponseWriter, r *http.Request) {}
 
 func (h *Handler) handleRegisterUser(w http.ResponseWriter, r *http.Request) {
-	// Set CORS headers
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	// Check request method
-	if r.Method != http.MethodPost {
-		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Parse the JSON request body
 	var userInput UserInput
 	if err := json.NewDecoder(r.Body).Decode(&userInput); err != nil {
@@ -130,17 +119,6 @@ func (h *Handler) handleRegisterUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
-	// Set CORS headers
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	// Check request method
-	if r.Method != http.MethodPost {
-		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Parse the JSON request body
 	var userInput UserInput
 	if err := json.NewDecoder(r.Body).Decode(&userInput); err != nil {
@@ -186,12 +164,6 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetUserSubscriptions(w http.ResponseWriter, r *http.Request) {
-	// Check request method
-	if r.Method != http.MethodGet {
-		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Get user token
 	userToken, ok := r.Context().Value(userTokenKey).(*Token)
 	if !ok {
@@ -229,12 +201,6 @@ func (h *Handler) handleGetUserSubscriptions(w http.ResponseWriter, r *http.Requ
 
 // Given a URL, find any rss links and save them
 func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) {
-	// Check request method
-	if r.Method != http.MethodGet {
-		http.Error(w, fmt.Sprintf("Method not allowed: %v", r.Method), http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Get user token
 	userToken, ok := r.Context().Value(userTokenKey).(*Token)
 	if !ok {
@@ -304,6 +270,101 @@ func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) 
 		}
 		var returnedSubscription Subscription
 		if err = h.conn.QueryRow(
+			context.Background(), query, args,
+		).Scan(
+			&returnedSubscription.Id, &returnedSubscription.Title, &returnedSubscription.Url,
+		); err != nil {
+			http.Error(w, fmt.Sprintf("Error adding subscription to database: %v", err), http.StatusBadRequest)
+			return
+		}
+		newSubscriptions = append(newSubscriptions, returnedSubscription)
+	}
+
+	json.NewEncoder(w).Encode(newSubscriptions)
+}
+
+func (h *Handler) handleSearchSubscription(w http.ResponseWriter, r *http.Request) {
+	// Get URL for querying
+	inputURL := r.URL.Query().Get("url")
+	if inputURL == "" {
+		http.Error(w, fmt.Sprintf("Missing url parameter: %v", r.Method), http.StatusBadRequest)
+		return
+	}
+
+	// Validate url param
+	parsedURL, err := url.ParseRequestURI(inputURL)
+	if err != nil {
+		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		return
+	}
+
+	// Make GET request to the URL
+	resp, err := http.Get(parsedURL.String())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error making GET request to %s: %v", parsedURL, err), http.StatusBadRequest)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, fmt.Sprintf("Received %d response", resp.StatusCode), http.StatusInternalServerError)
+		return
+	}
+
+	// Parse html
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error parsing html response: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Slice of rss urls
+	var feeds []SubscriptionTag
+
+	// Traverse the HTML document
+	findFeedLinks(doc, &feeds)
+
+	if len(feeds) == 0 {
+		http.Error(w, fmt.Sprint("No feed URLs found"), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(feeds)
+}
+
+func (h *Handler) handleAddSubscription2(w http.ResponseWriter, r *http.Request) {
+	// Get user token
+	userToken, ok := r.Context().Value(userTokenKey).(*Token)
+	if !ok {
+		http.Error(w, "No claims found in context", http.StatusForbidden)
+		return
+	}
+
+	// Subscription tags from the request
+	var feeds []SubscriptionTag
+	if err := json.NewDecoder(r.Body).Decode(&feeds); err != nil {
+		http.Error(w, fmt.Sprintf("Error parsing html response: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Newly created subscriptions with ids
+	var newSubscriptions []Subscription
+
+	// Save to db
+	query := `
+        INSERT INTO subscriptions (user_id, title, url)
+        VALUES (@user_id, @title, @url)
+        RETURNING id, title, url
+    `
+	for _, feedURL := range feeds {
+		args := pgx.NamedArgs{
+			"user_id": userToken.Id,
+			"title":   feedURL.Title,
+			"url":     feedURL.Href,
+		}
+		var returnedSubscription Subscription
+		if err := h.conn.QueryRow(
 			context.Background(), query, args,
 		).Scan(
 			&returnedSubscription.Id, &returnedSubscription.Title, &returnedSubscription.Url,
