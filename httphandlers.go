@@ -27,8 +27,8 @@ type User struct {
 }
 
 type SubscriptionTag struct {
-	Title string
-	Href  string
+	Title string `json:"title"`
+	Href  string `json:"href"`
 }
 
 type Subscription struct {
@@ -200,88 +200,88 @@ func (h *Handler) handleGetUserSubscriptions(w http.ResponseWriter, r *http.Requ
 }
 
 // Given a URL, find any rss links and save them
-func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) {
-	// Get user token
-	userToken, ok := r.Context().Value(userTokenKey).(*Token)
-	if !ok {
-		http.Error(w, "No claims found in context", http.StatusForbidden)
-		return
-	}
+// func (h *Handler) handleAddSubscription(w http.ResponseWriter, r *http.Request) {
+// 	// Get user token
+// 	userToken, ok := r.Context().Value(userTokenKey).(*Token)
+// 	if !ok {
+// 		http.Error(w, "No claims found in context", http.StatusForbidden)
+// 		return
+// 	}
 
-	// Get URL for querying
-	inputURL := r.URL.Query().Get("url")
-	if inputURL == "" {
-		http.Error(w, fmt.Sprintf("Missing url parameter: %v", r.Method), http.StatusBadRequest)
-		return
-	}
+// 	// Get URL for querying
+// 	inputURL := r.URL.Query().Get("url")
+// 	if inputURL == "" {
+// 		http.Error(w, fmt.Sprintf("Missing url parameter: %v", r.Method), http.StatusBadRequest)
+// 		return
+// 	}
 
-	// Validate url param
-	parsedURL, err := url.ParseRequestURI(inputURL)
-	if err != nil {
-		http.Error(w, "Invalid URL", http.StatusBadRequest)
-		return
-	}
+// 	// Validate url param
+// 	parsedURL, err := url.ParseRequestURI(inputURL)
+// 	if err != nil {
+// 		http.Error(w, "Invalid URL", http.StatusBadRequest)
+// 		return
+// 	}
 
-	// Make GET request to the URL
-	resp, err := http.Get(parsedURL.String())
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error making GET request to %s: %v", parsedURL, err), http.StatusBadRequest)
-		return
-	}
-	defer resp.Body.Close()
+// 	// Make GET request to the URL
+// 	resp, err := http.Get(parsedURL.String())
+// 	if err != nil {
+// 		http.Error(w, fmt.Sprintf("Error making GET request to %s: %v", parsedURL, err), http.StatusBadRequest)
+// 		return
+// 	}
+// 	defer resp.Body.Close()
 
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		http.Error(w, fmt.Sprintf("Received %d response", resp.StatusCode), http.StatusInternalServerError)
-		return
-	}
+// 	// Check status code
+// 	if resp.StatusCode != http.StatusOK {
+// 		http.Error(w, fmt.Sprintf("Received %d response", resp.StatusCode), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	// Parse html
-	doc, err := html.Parse(resp.Body)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error parsing html response: %v", err), http.StatusInternalServerError)
-		return
-	}
+// 	// Parse html
+// 	doc, err := html.Parse(resp.Body)
+// 	if err != nil {
+// 		http.Error(w, fmt.Sprintf("Error parsing html response: %v", err), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	// slice of rss urls
-	var feeds []SubscriptionTag
+// 	// slice of rss urls
+// 	var feeds []SubscriptionTag
 
-	// Traverse the HTML document
-	findFeedLinks(doc, &feeds)
+// 	// Traverse the HTML document
+// 	findFeedLinks(doc, &feeds)
 
-	if len(feeds) == 0 {
-		http.Error(w, fmt.Sprint("No feed URLs found"), http.StatusInternalServerError)
-		return
-	}
+// 	if len(feeds) == 0 {
+// 		http.Error(w, fmt.Sprint("No feed URLs found"), http.StatusInternalServerError)
+// 		return
+// 	}
 
-	var newSubscriptions []Subscription
+// 	var newSubscriptions []Subscription
 
-	// Save to db
-	query := `
-        INSERT INTO subscriptions (user_id, title, url)
-        VALUES (@user_id, @title, @url)
-        RETURNING id, title, url
-    `
-	for _, feedURL := range feeds {
-		args := pgx.NamedArgs{
-			"user_id": userToken.Id,
-			"title":   feedURL.Title,
-			"url":     feedURL.Href,
-		}
-		var returnedSubscription Subscription
-		if err = h.conn.QueryRow(
-			context.Background(), query, args,
-		).Scan(
-			&returnedSubscription.Id, &returnedSubscription.Title, &returnedSubscription.Url,
-		); err != nil {
-			http.Error(w, fmt.Sprintf("Error adding subscription to database: %v", err), http.StatusBadRequest)
-			return
-		}
-		newSubscriptions = append(newSubscriptions, returnedSubscription)
-	}
+// 	// Save to db
+// 	query := `
+//         INSERT INTO subscriptions (user_id, title, url)
+//         VALUES (@user_id, @title, @url)
+//         RETURNING id, title, url
+//     `
+// 	for _, feedURL := range feeds {
+// 		args := pgx.NamedArgs{
+// 			"user_id": userToken.Id,
+// 			"title":   feedURL.Title,
+// 			"url":     feedURL.Href,
+// 		}
+// 		var returnedSubscription Subscription
+// 		if err = h.conn.QueryRow(
+// 			context.Background(), query, args,
+// 		).Scan(
+// 			&returnedSubscription.Id, &returnedSubscription.Title, &returnedSubscription.Url,
+// 		); err != nil {
+// 			http.Error(w, fmt.Sprintf("Error adding subscription to database: %v", err), http.StatusBadRequest)
+// 			return
+// 		}
+// 		newSubscriptions = append(newSubscriptions, returnedSubscription)
+// 	}
 
-	json.NewEncoder(w).Encode(newSubscriptions)
-}
+// 	json.NewEncoder(w).Encode(newSubscriptions)
+// }
 
 func (h *Handler) handleSearchSubscription(w http.ResponseWriter, r *http.Request) {
 	// Get URL for querying
@@ -333,7 +333,7 @@ func (h *Handler) handleSearchSubscription(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(feeds)
 }
 
-func (h *Handler) handleAddSubscription2(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleAddSubscriptions(w http.ResponseWriter, r *http.Request) {
 	// Get user token
 	userToken, ok := r.Context().Value(userTokenKey).(*Token)
 	if !ok {
@@ -348,15 +348,17 @@ func (h *Handler) handleAddSubscription2(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	fmt.Println(feeds)
+
 	// Newly created subscriptions with ids
 	var newSubscriptions []Subscription
 
 	// Save to db
 	query := `
-        INSERT INTO subscriptions (user_id, title, url)
-        VALUES (@user_id, @title, @url)
-        RETURNING id, title, url
-    `
+	INSERT INTO subscriptions (user_id, title, url)
+	VALUES (@user_id, @title, @url)
+	RETURNING id, title, url
+	`
 	for _, feedURL := range feeds {
 		args := pgx.NamedArgs{
 			"user_id": userToken.Id,

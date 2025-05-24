@@ -51,7 +51,7 @@ func SetupRouter(h *Handler) *mux.Router {
 	searchSubscription := r.HandleFunc("/search-subscription", corsMiddleware(authMiddleware(h.handleSearchSubscription)))
 	searchSubscription.Methods(http.MethodGet, http.MethodOptions)
 
-	addSubscription := r.HandleFunc("/add-subscription", corsMiddleware(authMiddleware(h.handleAddSubscription)))
+	addSubscription := r.HandleFunc("/add-subscriptions", corsMiddleware(authMiddleware(h.handleAddSubscriptions)))
 	addSubscription.Methods(http.MethodPost, http.MethodOptions)
 
 	return r
