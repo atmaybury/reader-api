@@ -54,6 +54,9 @@ func SetupRouter(h *Handler) *mux.Router {
 	addSubscription := r.HandleFunc("/add-subscriptions", corsMiddleware(authMiddleware(h.handleAddSubscriptions)))
 	addSubscription.Methods(http.MethodPost, http.MethodOptions)
 
+	deleteSubscriptions := r.HandleFunc("/delete-subscriptions", corsMiddleware(authMiddleware(h.handleDeleteSubscriptions)))
+	deleteSubscriptions.Methods(http.MethodDelete, http.MethodOptions)
+
 	return r
 }
 
