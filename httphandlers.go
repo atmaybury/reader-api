@@ -9,6 +9,7 @@ import (
 
 	"github.com/golang-jwt/jwt"
 	"github.com/jackc/pgx/v5"
+	"github.com/mmcdole/gofeed"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/net/html"
 )
@@ -333,4 +334,52 @@ func (h *Handler) handleDeleteSubscriptions(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(deletedIDs)
+}
+
+type FeedResponse struct {
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Items       []FeedItem `json:"items"`
+}
+
+type FeedItem struct {
+	Title       string `json:"title"`
+	Content     string `json:"content"`
+	Description string `json:"description"`
+}
+
+func (h *Handler) handleFetchFeed(w http.ResponseWriter, r *http.Request) {
+	// Get URL for querying
+	href := r.URL.Query().Get("href")
+	if href == "" {
+		http.Error(w, fmt.Sprintf("Missing href parameter: %v", r.Method), http.StatusBadRequest)
+		return
+	}
+
+	// Fetch feed
+	fp := gofeed.NewParser()
+	feed, err := fp.ParseURL(href)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error fetching feed: %v", r.Method), http.StatusInternalServerError)
+		return
+	}
+
+	// Create response
+	var items []FeedItem
+	for _, item := range feed.Items {
+		newItem := FeedItem{
+			Title:       item.Title,
+			Content:     item.Content,
+			Description: item.Description,
+		}
+		items = append(items, newItem)
+	}
+
+	feedResponse := FeedResponse{
+		Title:       feed.Title,
+		Description: feed.Description,
+		Items:       items,
+	}
+
+	json.NewEncoder(w).Encode(feedResponse)
 }

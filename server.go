@@ -57,6 +57,9 @@ func SetupRouter(h *Handler) *mux.Router {
 	deleteSubscriptions := r.HandleFunc("/delete-subscriptions", corsMiddleware(authMiddleware(h.handleDeleteSubscriptions)))
 	deleteSubscriptions.Methods(http.MethodDelete, http.MethodOptions)
 
+	fetchFeed := r.HandleFunc("/fetch-feed", corsMiddleware(authMiddleware(h.handleFetchFeed)))
+	fetchFeed.Methods(http.MethodGet, http.MethodOptions)
+
 	return r
 }
 
