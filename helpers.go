@@ -39,7 +39,7 @@ func getDBPool() (*pgxpool.Pool, error) {
 }
 
 // Function to recursively traverse the HTML node tree
-func findFeedLinks(n *html.Node, urls *[]SubscriptionTag) {
+func findFeedLinks(n *html.Node, urls *[]FeedTag) {
 	if n.Type == html.ElementNode && n.Data == "link" {
 		var rel, attrtype, title, href string
 		for _, attr := range n.Attr {
@@ -59,7 +59,7 @@ func findFeedLinks(n *html.Node, urls *[]SubscriptionTag) {
 		if strings.ToLower(rel) == "alternate" {
 			if strings.Contains(
 				strings.ToLower(attrtype), "rss") || strings.Contains(strings.ToLower(attrtype), "atom") {
-				*urls = append(*urls, SubscriptionTag{
+				*urls = append(*urls, FeedTag{
 					Title: title,
 					Href:  href,
 				})

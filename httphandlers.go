@@ -27,7 +27,7 @@ type User struct {
 	Password string
 }
 
-type SubscriptionTag struct {
+type FeedTag struct {
 	Title string `json:"title"`
 	Href  string `json:"href"`
 }
@@ -44,6 +44,13 @@ type Token struct {
 	Email    string `json:"email"`
 	Exp      int64  `json:"exp"`
 	jwt.MapClaims
+}
+
+type UserSubscription struct {
+	Id          int    `json:"id"`
+	Title       string `json:"title"`
+	Url         string `json:"url"`
+	LastChecked string `json:"last_checked"`
 }
 
 type TokenKey string
@@ -172,32 +179,32 @@ func (h *Handler) handleGetUserSubscriptions(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	var subscriptions []Subscription
+	var userSubscriptions []UserSubscription
 	rows, err := h.conn.Query(
 		context.Background(),
-		"SELECT id, title, url FROM subscriptions WHERE user_id = $1",
+		"SELECT id, f.title, f.url FROM subscriptions s LEFT JOIN feeds f ON f.url = s.feed_url WHERE user_id = $1",
 		userToken.Id,
 	)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error getting subscriptions for user %s", userToken.Id), http.StatusForbidden)
+		http.Error(w, fmt.Sprintf("Error getting subscriptions for user %s: %v", userToken.Id, err), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var sub Subscription
+		var sub UserSubscription
 		if err := rows.Scan(&sub.Id, &sub.Title, &sub.Url); err != nil {
-			http.Error(w, "Error scanning subscription row", http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("Error scanning subscription row: %v", err), http.StatusInternalServerError)
 			return
 		}
-		subscriptions = append(subscriptions, sub)
+		userSubscriptions = append(userSubscriptions, sub)
 	}
 	if err := rows.Err(); err != nil {
-		http.Error(w, "Error iterating over subscriptions", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Error iterating over subscriptions: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(subscriptions)
+	json.NewEncoder(w).Encode(userSubscriptions)
 }
 
 func (h *Handler) handleSearchSubscription(w http.ResponseWriter, r *http.Request) {
@@ -237,7 +244,7 @@ func (h *Handler) handleSearchSubscription(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Slice of rss urls
-	var feeds []SubscriptionTag
+	var feeds []FeedTag
 
 	// Traverse the HTML document
 	findFeedLinks(doc, &feeds)
@@ -258,31 +265,65 @@ func (h *Handler) handleAddSubscriptions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Subscription tags from the request
-	var feeds []SubscriptionTag
+	// Feed tags from the request
+	var feeds []FeedTag
 	if err := json.NewDecoder(r.Body).Decode(&feeds); err != nil {
 		http.Error(w, fmt.Sprintf("Error parsing html response: %v", err), http.StatusInternalServerError)
 		return
 	}
 
+	var newFeeds []int
+
+	addFeedQuery := `
+    INSERT INTO feeds (url, title)
+    VALUES (@url, @title)
+    ON CONFLICT (url) DO UPDATE SET title = EXCLUDED.title
+    RETURNING id
+    `
+
+	for _, feedURL := range feeds {
+		args := pgx.NamedArgs{
+			"url":   feedURL.Href,
+			"title": feedURL.Title,
+		}
+
+		var feedID int
+		if err := h.conn.QueryRow(context.Background(), addFeedQuery, args).Scan(&feedID); err != nil {
+			http.Error(w, fmt.Sprintf("Error adding feed to database: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		newFeeds = append(newFeeds, feedID)
+	}
+
 	// Newly created subscriptions with ids
 	var newSubscriptions []Subscription
 
-	// Save to db
-	query := `
-	INSERT INTO subscriptions (user_id, title, url)
-	VALUES (@user_id, @title, @url)
-	RETURNING id, title, url
-	`
-	for _, feedURL := range feeds {
+	addSubscriptionQuery := `
+    WITH inserted_sub AS (
+        INSERT INTO subscriptions (user_id, feed_id)
+        VALUES (@user_id, @feed_id)
+        RETURNING id, user_id, feed_id
+    )
+    SELECT s.id, f.title, f.url
+    FROM inserted_sub s
+    JOIN feeds f ON s.feed_id = f.id
+    `
+
+	// Create subscription in db
+	// addSubcriptionQuery := `
+	// INSERT INTO subscriptions (user_id, feed_id)
+	// VALUES (@user_id, @feed_id)
+	// RETURNING id, title, url
+	// `
+	for _, feedId := range newFeeds {
 		args := pgx.NamedArgs{
 			"user_id": userToken.Id,
-			"title":   feedURL.Title,
-			"url":     feedURL.Href,
+			"feed_id": feedId,
 		}
 		var returnedSubscription Subscription
 		if err := h.conn.QueryRow(
-			context.Background(), query, args,
+			context.Background(), addSubscriptionQuery, args,
 		).Scan(
 			&returnedSubscription.Id, &returnedSubscription.Title, &returnedSubscription.Url,
 		); err != nil {
@@ -384,3 +425,25 @@ func (h *Handler) handleFetchFeed(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(feedResponse)
 }
+
+// -- FEEDS
+// CREATE TABLE public.feeds (
+// 	url text NOT NULL,
+// 	title text NOT NULL,
+// 	last_checked timestamptz NOT NULL DEFAULT NOW(),
+// 	CONSTRAINT feeds_pkey PRIMARY KEY (url)
+// );
+
+// -- SUBSCRIPTIONS
+// CREATE TABLE public.subscriptions (
+// 	id serial4 NOT NULL,
+// 	user_id int NOT NULL,
+// 	feed_url string NOT NULL,
+// 	CONSTRAINT subscriptions_pkey PRIMARY KEY (id),
+// 	CONSTRAINT subscriptions_user_id_fkey
+// 		FOREIGN KEY (user_id)
+// 		REFERENCES public.users(id),
+// 	CONSTRAINT subscriptions_feed_url_fkey
+// 		FOREIGN KEY (feed_url)
+// 		REFERENCES public.feeds(url)
+// );
