@@ -38,8 +38,11 @@ func SetupRouter(h *Handler) *mux.Router {
 	root := r.HandleFunc("/", corsMiddleware(h.handleRoot))
 	root.Methods(http.MethodGet)
 
-	register := r.HandleFunc("/register", corsMiddleware(h.handleRegisterUser))
-	register.Methods(http.MethodPost, http.MethodOptions)
+	registerUser := r.HandleFunc("/register", corsMiddleware(h.handleRegisterUser))
+	registerUser.Methods(http.MethodPost, http.MethodOptions)
+
+	deleteUser := r.HandleFunc("/delete-user", corsMiddleware(authMiddleware(h.handleDeleteUser)))
+	deleteUser.Methods(http.MethodDelete, http.MethodOptions)
 
 	login := r.HandleFunc("/login", corsMiddleware(h.handleLogin))
 	login.Methods(http.MethodPost, http.MethodOptions)

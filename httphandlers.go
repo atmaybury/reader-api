@@ -14,6 +14,11 @@ import (
 	"golang.org/x/net/html"
 )
 
+type UserLoginInput struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
 type UserInput struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
@@ -32,10 +37,23 @@ type FeedTag struct {
 	Href  string `json:"href"`
 }
 
-type Subscription struct {
-	Id    int    `json:"id"`
-	Title string `json:"title"`
-	Url   string `json:"url"`
+type FeedResponse struct {
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Items       []FeedItem `json:"items"`
+}
+
+type FeedItem struct {
+	Title       string `json:"title"`
+	Content     string `json:"content"`
+	Description string `json:"description"`
+}
+
+type UserSubscription struct {
+	Id          int    `json:"id"`
+	Title       string `json:"title"`
+	Url         string `json:"url"`
+	LastChecked string `json:"last_checked"`
 }
 
 type Token struct {
@@ -44,13 +62,6 @@ type Token struct {
 	Email    string `json:"email"`
 	Exp      int64  `json:"exp"`
 	jwt.MapClaims
-}
-
-type UserSubscription struct {
-	Id          int    `json:"id"`
-	Title       string `json:"title"`
-	Url         string `json:"url"`
-	LastChecked string `json:"last_checked"`
 }
 
 type TokenKey string
@@ -126,9 +137,28 @@ func (h *Handler) handleRegisterUser(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, tokenString)
 }
 
+func (h *Handler) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	// Get URL for querying
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "Missing id parameter", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := h.conn.Exec(
+		context.Background(),
+		"DELETE FROM users WHERE id = $1",
+		id,
+	); err != nil {
+		http.Error(w, "Error deleting user from DB", http.StatusInternalServerError)
+		fmt.Println(err)
+		return
+	}
+}
+
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Parse the JSON request body
-	var userInput UserInput
+	var userInput UserLoginInput
 	if err := json.NewDecoder(r.Body).Decode(&userInput); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
@@ -137,8 +167,8 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Logging in %s\n", userInput.Email)
 
 	// Validate required fields
-	if userInput.Username == "" || userInput.Email == "" || userInput.Password == "" {
-		http.Error(w, "Missing required fields (username, email, password)", http.StatusBadRequest)
+	if userInput.Email == "" || userInput.Password == "" {
+		http.Error(w, "Missing required fields (email, password)", http.StatusBadRequest)
 		return
 	}
 
@@ -182,7 +212,7 @@ func (h *Handler) handleGetUserSubscriptions(w http.ResponseWriter, r *http.Requ
 	var userSubscriptions []UserSubscription
 	rows, err := h.conn.Query(
 		context.Background(),
-		"SELECT id, f.title, f.url FROM subscriptions s LEFT JOIN feeds f ON f.url = s.feed_url WHERE user_id = $1",
+		"SELECT s.id, f.title, f.url FROM subscriptions s LEFT JOIN feeds f ON f.id = s.feed_id WHERE user_id = $1",
 		userToken.Id,
 	)
 	if err != nil {
@@ -297,7 +327,7 @@ func (h *Handler) handleAddSubscriptions(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Newly created subscriptions with ids
-	var newSubscriptions []Subscription
+	var newSubscriptions []UserSubscription
 
 	addSubscriptionQuery := `
     WITH inserted_sub AS (
@@ -305,23 +335,17 @@ func (h *Handler) handleAddSubscriptions(w http.ResponseWriter, r *http.Request)
         VALUES (@user_id, @feed_id)
         RETURNING id, user_id, feed_id
     )
-    SELECT s.id, f.title, f.url
+    SELECT s.id, f.title, f.url, f.last_checked
     FROM inserted_sub s
     JOIN feeds f ON s.feed_id = f.id
     `
 
-	// Create subscription in db
-	// addSubcriptionQuery := `
-	// INSERT INTO subscriptions (user_id, feed_id)
-	// VALUES (@user_id, @feed_id)
-	// RETURNING id, title, url
-	// `
 	for _, feedId := range newFeeds {
 		args := pgx.NamedArgs{
 			"user_id": userToken.Id,
 			"feed_id": feedId,
 		}
-		var returnedSubscription Subscription
+		var returnedSubscription UserSubscription
 		if err := h.conn.QueryRow(
 			context.Background(), addSubscriptionQuery, args,
 		).Scan(
@@ -377,18 +401,6 @@ func (h *Handler) handleDeleteSubscriptions(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(deletedIDs)
 }
 
-type FeedResponse struct {
-	Title       string     `json:"title"`
-	Description string     `json:"description"`
-	Items       []FeedItem `json:"items"`
-}
-
-type FeedItem struct {
-	Title       string `json:"title"`
-	Content     string `json:"content"`
-	Description string `json:"description"`
-}
-
 func (h *Handler) handleFetchFeed(w http.ResponseWriter, r *http.Request) {
 	// Get URL for querying
 	href := r.URL.Query().Get("href")
@@ -401,7 +413,7 @@ func (h *Handler) handleFetchFeed(w http.ResponseWriter, r *http.Request) {
 	fp := gofeed.NewParser()
 	feed, err := fp.ParseURL(href)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error fetching feed: %v", r.Method), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Error fetching feed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -425,25 +437,3 @@ func (h *Handler) handleFetchFeed(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(feedResponse)
 }
-
-// -- FEEDS
-// CREATE TABLE public.feeds (
-// 	url text NOT NULL,
-// 	title text NOT NULL,
-// 	last_checked timestamptz NOT NULL DEFAULT NOW(),
-// 	CONSTRAINT feeds_pkey PRIMARY KEY (url)
-// );
-
-// -- SUBSCRIPTIONS
-// CREATE TABLE public.subscriptions (
-// 	id serial4 NOT NULL,
-// 	user_id int NOT NULL,
-// 	feed_url string NOT NULL,
-// 	CONSTRAINT subscriptions_pkey PRIMARY KEY (id),
-// 	CONSTRAINT subscriptions_user_id_fkey
-// 		FOREIGN KEY (user_id)
-// 		REFERENCES public.users(id),
-// 	CONSTRAINT subscriptions_feed_url_fkey
-// 		FOREIGN KEY (feed_url)
-// 		REFERENCES public.feeds(url)
-// );
