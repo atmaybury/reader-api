@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/golang-jwt/jwt"
+	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
 	"github.com/mmcdole/gofeed"
 	"golang.org/x/crypto/bcrypt"
@@ -55,10 +57,10 @@ type UserFolder struct {
 }
 
 type UserSubscription struct {
-	Id          int    `json:"id"`
-	Title       string `json:"title"`
-	Url         string `json:"url"`
-	LastChecked string `json:"last_checked"`
+	Id          int       `json:"id"`
+	Title       string    `json:"title"`
+	Url         string    `json:"url"`
+	LastChecked time.Time `json:"last_checked"`
 }
 
 type Token struct {
@@ -206,6 +208,36 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, tokenString)
 }
 
+func (h *Handler) handleCreateUserFolder(w http.ResponseWriter, r *http.Request) {
+	// Get user token
+	userToken, ok := r.Context().Value(userTokenKey).(*Token)
+	if !ok {
+		http.Error(w, "No claims found in context", http.StatusForbidden)
+		return
+	}
+
+	// Get folder name from request
+	folderName := r.URL.Query().Get("name")
+	if folderName == "" {
+		http.Error(w, fmt.Sprintf("Missing name parameter: %v", r.Method), http.StatusBadRequest)
+		return
+	}
+
+	// Add user row to db
+	var folder UserFolder
+	query := `
+        INSERT INTO folders (user_id, name)
+        VALUES ($1, $2)
+        RETURNING id, name
+    `
+	if err := h.conn.QueryRow(context.Background(), query, userToken.Id, folderName).Scan(&folder.Id, &folder.Name); err != nil {
+		http.Error(w, fmt.Sprintf("Error adding folder to database: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	json.NewEncoder(w).Encode(folder)
+}
+
 func (h *Handler) handleGetUserFolders(w http.ResponseWriter, r *http.Request) {
 	// Get user token
 	userToken, ok := r.Context().Value(userTokenKey).(*Token)
@@ -244,7 +276,7 @@ func (h *Handler) handleGetUserFolders(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(userFolders)
 }
 
-func (h *Handler) handleCreateUserFolder(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleGetFolderSubscriptions(w http.ResponseWriter, r *http.Request) {
 	// Get user token
 	userToken, ok := r.Context().Value(userTokenKey).(*Token)
 	if !ok {
@@ -252,28 +284,35 @@ func (h *Handler) handleCreateUserFolder(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	fmt.Println("TOKEN: ", userToken)
+	vars := mux.Vars(r)
+	folderId := vars["folderId"]
 
-	// Get folder name from request
-	folderName := r.URL.Query().Get("name")
-	if folderName == "" {
-		http.Error(w, fmt.Sprintf("Missing name parameter: %v", r.Method), http.StatusBadRequest)
+	var userSubscriptions []UserSubscription
+	rows, err := h.conn.Query(
+		context.Background(),
+		"SELECT s.id, f.title, f.url FROM subscriptions s LEFT JOIN feeds f ON f.id = s.feed_id WHERE user_id = $1 AND folder_id = $2",
+		userToken.Id, folderId,
+	)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error getting subscriptions for user %s: %v", userToken.Id, err), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var sub UserSubscription
+		if err := rows.Scan(&sub.Id, &sub.Title, &sub.Url); err != nil {
+			http.Error(w, fmt.Sprintf("Error scanning subscription row: %v", err), http.StatusInternalServerError)
+			return
+		}
+		userSubscriptions = append(userSubscriptions, sub)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, fmt.Sprintf("Error iterating over subscriptions: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Add user row to db
-	var folder UserFolder
-	query := `
-        INSERT INTO folders (user_id, name)
-        VALUES ($1, $2)
-        RETURNING id, name
-    `
-	if err := h.conn.QueryRow(context.Background(), query, userToken.Id, folderName).Scan(&folder.Id, &folder.Name); err != nil {
-		http.Error(w, fmt.Sprintf("Error adding folder to database: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	json.NewEncoder(w).Encode(folder)
+	json.NewEncoder(w).Encode(userSubscriptions)
 }
 
 func (h *Handler) handleGetUserSubscriptions(w http.ResponseWriter, r *http.Request) {
@@ -424,7 +463,7 @@ func (h *Handler) handleAddSubscriptions(w http.ResponseWriter, r *http.Request)
 		if err := h.conn.QueryRow(
 			context.Background(), addSubscriptionQuery, args,
 		).Scan(
-			&returnedSubscription.Id, &returnedSubscription.Title, &returnedSubscription.Url,
+			&returnedSubscription.Id, &returnedSubscription.Title, &returnedSubscription.Url, &returnedSubscription.LastChecked,
 		); err != nil {
 			http.Error(w, fmt.Sprintf("Error adding subscription to database: %v", err), http.StatusInternalServerError)
 			return

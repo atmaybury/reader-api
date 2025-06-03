@@ -51,12 +51,14 @@ func SetupRouter(h *Handler) *mux.Router {
 
 	/* FOLDERS */
 
-	// Get folders
+	createUserFolder := r.HandleFunc("/user-folders", corsMiddleware(authMiddleware(h.handleCreateUserFolder)))
+	createUserFolder.Methods(http.MethodPost, http.MethodOptions)
+
 	getUserFolders := r.HandleFunc("/user-folders", corsMiddleware(authMiddleware(h.handleGetUserFolders)))
 	getUserFolders.Methods(http.MethodGet, http.MethodOptions)
 
-	createUserFolder := r.HandleFunc("/user-folders", corsMiddleware(authMiddleware(h.handleCreateUserFolder)))
-	createUserFolder.Methods(http.MethodPost, http.MethodOptions)
+	getFolderSubscriptions := r.HandleFunc("/folders/{folderId}/subscriptions", corsMiddleware(authMiddleware(h.handleGetFolderSubscriptions)))
+	getFolderSubscriptions.Methods(http.MethodGet, http.MethodOptions)
 
 	/* SUBSCRIPTIONS & FEEDS */
 
