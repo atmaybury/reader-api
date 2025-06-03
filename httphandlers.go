@@ -49,6 +49,11 @@ type FeedItem struct {
 	Description string `json:"description"`
 }
 
+type UserFolder struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type UserSubscription struct {
 	Id          int    `json:"id"`
 	Title       string `json:"title"`
@@ -199,6 +204,76 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// send back token
 	fmt.Fprint(w, tokenString)
+}
+
+func (h *Handler) handleGetUserFolders(w http.ResponseWriter, r *http.Request) {
+	// Get user token
+	userToken, ok := r.Context().Value(userTokenKey).(*Token)
+	if !ok {
+		http.Error(w, "No claims found in context", http.StatusForbidden)
+		return
+	}
+
+	userFolders := []UserFolder{}
+	rows, err := h.conn.Query(
+		context.Background(),
+		"SELECT id, name FROM folders f WHERE user_id = $1",
+		userToken.Id,
+	)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error getting folders for user %s: %v", userToken.Id, err), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var folder UserFolder
+		if err := rows.Scan(&folder.Id, &folder.Name); err != nil {
+			http.Error(w, fmt.Sprintf("Error scanning folders row: %v", err), http.StatusInternalServerError)
+			return
+		}
+		userFolders = append(userFolders, folder)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, fmt.Sprintf("Error iterating over subscriptions: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Println("USER FOLDERS: ", userFolders)
+
+	json.NewEncoder(w).Encode(userFolders)
+}
+
+func (h *Handler) handleCreateUserFolder(w http.ResponseWriter, r *http.Request) {
+	// Get user token
+	userToken, ok := r.Context().Value(userTokenKey).(*Token)
+	if !ok {
+		http.Error(w, "No claims found in context", http.StatusForbidden)
+		return
+	}
+
+	fmt.Println("TOKEN: ", userToken)
+
+	// Get folder name from request
+	folderName := r.URL.Query().Get("name")
+	if folderName == "" {
+		http.Error(w, fmt.Sprintf("Missing name parameter: %v", r.Method), http.StatusBadRequest)
+		return
+	}
+
+	// Add user row to db
+	var folder UserFolder
+	query := `
+        INSERT INTO folders (user_id, name)
+        VALUES ($1, $2)
+        RETURNING id, name
+    `
+	if err := h.conn.QueryRow(context.Background(), query, userToken.Id, folderName).Scan(&folder.Id, &folder.Name); err != nil {
+		http.Error(w, fmt.Sprintf("Error adding folder to database: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	json.NewEncoder(w).Encode(folder)
 }
 
 func (h *Handler) handleGetUserSubscriptions(w http.ResponseWriter, r *http.Request) {

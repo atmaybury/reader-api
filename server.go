@@ -35,6 +35,8 @@ type Handler struct {
 func SetupRouter(h *Handler) *mux.Router {
 	r := mux.NewRouter()
 
+	/* USERS */
+
 	root := r.HandleFunc("/", corsMiddleware(h.handleRoot))
 	root.Methods(http.MethodGet)
 
@@ -47,7 +49,17 @@ func SetupRouter(h *Handler) *mux.Router {
 	login := r.HandleFunc("/login", corsMiddleware(h.handleLogin))
 	login.Methods(http.MethodPost, http.MethodOptions)
 
-	// Auth
+	/* FOLDERS */
+
+	// Get folders
+	getUserFolders := r.HandleFunc("/user-folders", corsMiddleware(authMiddleware(h.handleGetUserFolders)))
+	getUserFolders.Methods(http.MethodGet, http.MethodOptions)
+
+	createUserFolder := r.HandleFunc("/user-folders", corsMiddleware(authMiddleware(h.handleCreateUserFolder)))
+	createUserFolder.Methods(http.MethodPost, http.MethodOptions)
+
+	/* SUBSCRIPTIONS & FEEDS */
+
 	usersubscriptions := r.HandleFunc("/user-subscriptions", corsMiddleware(authMiddleware(h.handleGetUserSubscriptions)))
 	usersubscriptions.Methods(http.MethodGet, http.MethodOptions)
 
